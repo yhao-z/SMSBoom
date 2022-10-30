@@ -11,41 +11,63 @@ from utils import default_header_user_agent
 from utils.models import API
 from utils.log import logger
 
+import global_v
+from func_timeout import func_set_timeout
+from func_timeout import FunctionTimedOut
+
 
 def reqAPI(api: API, client: Union[httpx.Client, httpx.AsyncClient]) -> httpx.Response:
+    resp = 'continue'
     if isinstance(api.data, dict):
         resp = client.request(method=api.method, json=api.data,
                               headers=api.header, url=api.url, timeout=10)
     else:
-        resp = client.request(method=api.method, data=api.data,
+        resp = client.request(method=api.method, data=str(api.data) if isinstance(api.data,int) else api.data,
                               headers=api.header, url=api.url, timeout=10)
     return resp
 
 
+def zyh_reqFuncByProxy(api: Union[API, str], phone: Union[tuple, str], proxy: dict) -> bool:
+    try:
+        reqFuncByProxy(api, phone, proxy)
+        return True
+    except FunctionTimedOut:
+        print('', end='')
+        return False
+    except Exception:
+        print('', end='')
+        return False
 
+
+
+@func_set_timeout(5)
 def reqFuncByProxy(api: Union[API, str], phone: Union[tuple, str], proxy: dict) -> bool:
 
     """通过代理请求接口方法"""
-    # 多手机号支持
-    if isinstance(phone, tuple):
-        phone_lst = [_ for _ in phone]
-    else:
-        phone_lst = [phone]
-    with httpx.Client(headers=default_header_user_agent(), verify=False, proxies=proxy) as client:
-        for ph in phone_lst:
-            try:
-                if isinstance(api, API):
-                    api = api.handle_API(ph)
-                    resp = reqAPI(api, client)
-                    logger.info(f"{api.desc}-{resp.text[:30]}")
-                else:
-                    api = api.replace("[phone]", ph).replace(" ", "").replace('\n', '').replace('\r', '')
-                    resp = client.get(url=api, headers=default_header_user_agent())
-                    logger.info(f"GETAPI接口-{resp.text[:30]}")
-                return True
-            except httpx.HTTPError as why:
-                logger.error(f"请求失败{why}")
-                return False
+    if not global_v.flag:
+        # 多手机号支持
+        if isinstance(phone, tuple):
+            phone_lst = [_ for _ in phone]
+        else:
+            phone_lst = [phone]
+        with httpx.Client(headers=default_header_user_agent(), verify=False, proxies=proxy) as client:
+            for ph in phone_lst:
+                try:
+                    if isinstance(api, API):
+                        api = api.handle_API(ph)
+                        resp = reqAPI(api, client)
+                        # logger.info(f"{api.desc}-{resp.text[:30]}")
+                    else:
+                        api = api.replace("[phone]", ph).replace(" ", "").replace('\n', '').replace('\r', '')
+                        resp = client.get(url=api, headers=default_header_user_agent(), timeout=10)
+                        # logger.info(f"GETAPI接口-{resp.text[:30]}")
+                    global_v.flag = True
+                    return True
+                except httpx.HTTPError as why:
+                    # logger.error(f"请求失败{why}")
+                    return False
+    else: 
+        return False
 
 
 def reqFunc(api: Union[API, str], phone: Union[tuple, str]) -> bool:
@@ -69,7 +91,7 @@ def reqFunc(api: Union[API, str], phone: Union[tuple, str]) -> bool:
                     logger.info(f"GETAPI接口-{resp.text[:30]}")
                 return True
             except httpx.HTTPError as why:
-                logger.error(f"请求失败{why}")
+                # logger.error(f"请求失败{why}")
                 return False
 
 

